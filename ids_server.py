@@ -12,8 +12,7 @@ from database import ListeningQuestion, ListeningPracticeItem, Database
 from bson import ObjectId
 from datetime import datetime
 from io import BytesIO
-
-
+from server_thread_controller import is_thread_stopped
 
 
 class IdsServer:
@@ -56,6 +55,9 @@ class IdsServer:
     def handle_find_similar(self, client_socket, addr):
         # Step 1
         print(f'{addr} step 1')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         user_id_len_bytes = client_socket.recv(4)
         user_id_len = Utility.big_endian_to_int(user_id_len_bytes)
         user_id = client_socket.recv(user_id_len).decode('utf-8')
@@ -63,37 +65,62 @@ class IdsServer:
 
         # Step 2
         print(f'{addr} step 2')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         num_img_bytes = client_socket.recv(4)
         num_img = Utility.big_endian_to_int(num_img_bytes)
         print(f'{addr} wants {num_img} topic -> Need {num_img * IdsServer.IMG_PER_TOPIC} images')
 
         # Step 3
         print(f'{addr} step 3')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         topic_images = IdsServer.__save_many_images(client_socket, addr, num_img)
 
         # Step 4
         print(f'{addr} step 4')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         img_byte_array = []
 
         def process_image(image):
-            return self.__find_similar(image, IdsServer.IMG_PER_TOPIC, get_bytes=True)
+            return self.__find_similar(image, IdsServer.IMG_PER_TOPIC, get_bytes=True, addr=addr)
 
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(process_image, topic_images))
 
         for result in results:
+            if result is None:
+                return
+            
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
+        for result in results:
             img_byte_array += result
 
         # Step 5
         print(f'{addr} step 5')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         print('Creating practice item...')
         item = IdsServer.__create_practice_item(user_id, topic_images, img_byte_array)
         new_id_str = ObjectId().__str__()
         item.id = ObjectId(new_id_str)
 
         print('Inserting to database...')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         Database.insertListening(item)
 
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in IdsServer')
+            return
         client_socket.sendall(
             Utility.int_to_big_endian(ResponseType.SUCCESS)
         )
@@ -111,12 +138,17 @@ class IdsServer:
         2. Search for images with the same classes and objects
         3. If not enough, get images from the repository
     """
-    def __find_similar(self, image, num_img, get_bytes):
+    def __find_similar(self, image, num_img, get_bytes, addr):
         def host_query_searching():
             print('Classifying...')
             classes = self.__classify(image, IdsServer.NUM_CLASS_FROM_CLASSIFIER)
+            if is_thread_stopped(addr):
+                print(f'Thread for {addr} stopped in IdsServer')
+                return None
             objs = self.__detect_object(image, threshold=IdsServer.DETECT_THRESHOLD, max_num_obj=IdsServer.NUM_DETECT_OBJ)
-            
+            if is_thread_stopped(addr):
+                print(f'Thread for {addr} stopped in IdsServer')
+                return None
             search_query = ' and '.join(objs) + f' and {classes[0]}'
             img_links = SearchAPI.search_image(search_query)
 
@@ -131,15 +163,25 @@ class IdsServer:
             future1 = executor.submit(host_query_searching)
             future2 = executor.submit(gemini_query_searching)
 
-            classes, img_links_1 = future1.result()
+            f1_result = future1.result()
+            if f1_result is None:
+                return None
+            classes, img_links_1 = f1_result
+
             img_links = list(set(img_links_1 + future2.result()))
         
+        if is_thread_stopped(addr):
+                print(f'Thread for {addr} stopped in IdsServer')
+                return None
         img_array_from_link = Utility.get_image_from_links(img_links, num_img, get_bytes=get_bytes)
 
         if len(img_array_from_link) >= num_img:
             random.shuffle(img_array_from_link)
             img_array_from_link = img_array_from_link[:num_img]
 
+        if is_thread_stopped(addr):
+                print(f'Thread for {addr} stopped in IdsServer')
+                return None
         img_array_from_repo = IdsServer.__get_image_from_repo(
             classes=classes[1:],
             num_img=num_img - len(img_array_from_link),

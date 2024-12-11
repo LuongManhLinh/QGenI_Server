@@ -14,10 +14,12 @@ class RequestType:
 
 
 class ResponseType:
+    ACCEPTED = 0
     SUCCESS = 1
     INVALID_REQUEST = 2
     SERVER_ERROR = 3
     CLIENT_ERROR = 4
+    SERVER_BUSY = 5
 
 
 class Utility:

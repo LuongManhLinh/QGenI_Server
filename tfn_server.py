@@ -4,6 +4,7 @@ from bson import ObjectId
 from database import Database, ReadingPracticeItem, ReadingQuestion
 import random
 from datetime import datetime
+from server_thread_controller import is_thread_stopped
 
 def get_prompt(passage, statement):
     return f"""Passage:
@@ -52,16 +53,25 @@ class TfnServer():
     def handle_tfn_checking(self, client_socket, addr):
         # Step 1
         print(f'{addr} step 1')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         user_id = TfnServer.__receive_long_string(client_socket)
         print(f'{addr} user id: {user_id}')
 
         # Step 2
         print(f'{addr} step 2')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         passage = TfnServer.__receive_long_string(client_socket)
         print(f'{addr} passage_len: {len(passage)}')
 
         # Step 3
         print(f'{addr} step 3')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         num_statements = TfnServer.__receive_int(client_socket)
         print(f'{addr} num_statements: {num_statements}')
         statements = []
@@ -71,13 +81,22 @@ class TfnServer():
 
         # Step 4
         print(f'{addr} step 4')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         recv_types = []
         for _ in range(num_statements):
             recv_type = TfnServer.__receive_int(client_socket)
             recv_types.append(recv_type)
 
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         predicted_types = []
         for statement in statements:
+            if is_thread_stopped(addr):
+                print(f'Thread for {addr} stopped in TfnServer')
+                return
             prompt = get_prompt(passage, statement)
             input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to('cuda')
             outputs = self.model.generate(input_ids)
@@ -86,6 +105,9 @@ class TfnServer():
 
         # Step 5
         print(f'{addr} step 5')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         refined_types = []
         num_diff = 0
         for idx in range(num_statements):
@@ -105,13 +127,22 @@ class TfnServer():
 
         # Step 6
         print(f'{addr} step 6')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         item = TfnServer.__create_practice_item(user_id, passage, statements, refined_types)
         new_id_str = ObjectId().__str__()
         item.id = ObjectId(new_id_str)
 
         print('Inserting to database...')
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         Database.insertReading(item)
 
+        if is_thread_stopped(addr):
+            print(f'Thread for {addr} stopped in TfnServer')
+            return
         client_socket.sendall(
             Utility.int_to_big_endian(ResponseType.SUCCESS)
         )

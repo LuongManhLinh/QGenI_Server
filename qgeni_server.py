@@ -4,10 +4,10 @@ import os
 from server_utils import RequestType, ResponseType, Utility
 from ids_server import IdsServer
 from tfn_server import TfnServer
-
+from server_thread_controller import thread_continous_flags
+    
 
 class QGenIServer:
-
     def __init__(self,
                 host='0.0.0.0',
                 port=20000, 
@@ -41,11 +41,11 @@ class QGenIServer:
         print(f'Server started on {self.host}:{self.port}')
 
         while True:
-            try:
-                print('Waiting for client...')
-                client_socket, address = self.server.accept()
-                print(f'Accepted client {address}')
+            print('Waiting for client...')
+            client_socket, address = self.server.accept()
+            print(f'Accepted client {address}')
 
+            try:
                 with self.thread_lock:
                     track_idx = -1
                     for idx, available in enumerate(self.track_availability):
@@ -58,14 +58,29 @@ class QGenIServer:
                     client_socket.close()
                 else:
                     self.track_availability[track_idx] = False
-                    client_thread = threading.Thread(target=self.__handle_client, args=(track_idx, client_socket, address))
+                    thread_continous_flags[address] = True
+
+                    ctrl_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    ctrl_port = self.port + 1 + track_idx
+                    client_socket.sendall(Utility.int_to_big_endian(ctrl_port))
+                    ctrl_socket.bind((self.host, ctrl_port))
+                    ctrl_thread = threading.Thread(
+                        target=self.__handle_control_client, args=(track_idx, ctrl_socket, address)
+                    )
+                    ctrl_thread.start()
+                    
+                    client_thread = threading.Thread(
+                        target=self.__handle_client, args=(track_idx, client_socket, address, ctrl_socket)
+                    )
                     client_thread.start()
 
             except Exception as e:
                 print(f"Error accepting client: {e}")
+                client_socket.sendall(Utility.int_to_big_endian(ResponseType.SERVER_ERROR))
+                client_socket.close()
 
 
-    def __handle_client(self, track_idx, client_socket, address):
+    def __handle_client(self, track_idx, client_socket, address, ctrl_socket):
         first_4_bytes = client_socket.recv(4)
         request_type = Utility.big_endian_to_int(first_4_bytes)
         try:
@@ -88,6 +103,7 @@ class QGenIServer:
         
         finally:
             client_socket.close()
+            ctrl_socket.close()
             print(f"Disconnected client {address}")
             with self.thread_lock:
                 self.track_availability[track_idx] = True
@@ -96,6 +112,21 @@ class QGenIServer:
             for filename in os.listdir(temp_folder_path):
                 file_path = os.path.join(temp_folder_path, filename)
                 os.remove(file_path)
+
+
+    def __handle_control_client(self, track_idx, ctrl_socket, transfer_addr):
+        ctrl_socket.listen(1)
+        client_ctrl_socket, _ = ctrl_socket.accept()
+        print(f"Accepted control client {transfer_addr}")
+
+        ctrl_bytes = client_ctrl_socket.recv(4)
+        ctrl_type = Utility.big_endian_to_int(ctrl_bytes)
+        if ctrl_type == ResponseType.CLIENT_ERROR:
+            print(f'Control client error at {transfer_addr}')
+            client_ctrl_socket.close()
+            ctrl_socket.close()
+            thread_continous_flags[transfer_addr] = False
+            self.track_availability[track_idx] = True
 
 
 
