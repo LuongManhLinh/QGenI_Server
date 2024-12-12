@@ -18,16 +18,13 @@ class QGenIServer:
         self.port=port
         self.max_clent = max_client
         
-        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.transfer_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        try:
-            self.server.bind( (self.host, self.port) )
-        except Exception as e:
-            self.port += 1
+        self.transfer_socket.bind( (self.host, self.port) )
+        self.control_socket.bind( (self.host, self.port + 1) )
         
-        self.track_availability = [True for _ in range(self.max_clent)]
-
-        self.thread_lock = threading.Lock()
+        self.num_working = 0
 
         print('Initializing IDS servers...')
         self.ids_servers = [IdsServer() for _ in range(self.max_clent)]
@@ -37,42 +34,33 @@ class QGenIServer:
 
     
     def start_server(self,):
-        self.server.listen(self.max_clent)
         print(f'Server started on {self.host}:{self.port}')
 
+        control_thread = threading.Thread(target=self.__handle_control_client)
+        control_thread.start()
+
+        self.transfer_socket.listen(self.max_clent)
+        
         while True:
             print('Waiting for client...')
-            client_socket, address = self.server.accept()
+            client_socket, address = self.transfer_socket.accept()
             print(f'Accepted client {address}')
 
             try:
-                with self.thread_lock:
-                    track_idx = -1
-                    for idx, available in enumerate(self.track_availability):
-                        if available:
-                            track_idx = idx
-                            break
-
-                if track_idx == -1:
-                    print('-' * 10, 'SERVER WENT WRONG', '-' * 10)
+                if self.num_working >= self.max_clent:
+                    print('-' * 10, 'SERVER IS BUSY', '-' * 10)
+                    client_socket.sendall(Utility.int_to_big_endian(ResponseType.SERVER_BUSY))
                     client_socket.close()
                 else:
-                    self.track_availability[track_idx] = False
-                    thread_continous_flags[address] = True
+                    self.num_working += 1
+                    thread_id = self.port + self.num_working
 
-                    ctrl_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    ctrl_port = self.port + 1 + track_idx
+                    client_socket.sendall(Utility.int_to_big_endian(thread_id))
 
-                    client_socket.sendall(Utility.int_to_big_endian(ctrl_port))
-                    
-                    ctrl_socket.bind((self.host, ctrl_port))
-                    ctrl_thread = threading.Thread(
-                        target=self.__handle_control_client, args=(track_idx, ctrl_socket, address)
-                    )
-                    ctrl_thread.start()
+                    thread_continous_flags[thread_id] = True
                     
                     client_thread = threading.Thread(
-                        target=self.__handle_client, args=(track_idx, client_socket, address, ctrl_socket)
+                        target=self.__handle_client, args=(self.num_working - 1, client_socket, thread_id)
                     )
                     client_thread.start()
 
@@ -82,15 +70,15 @@ class QGenIServer:
                 client_socket.close()
 
 
-    def __handle_client(self, track_idx, client_socket, address, ctrl_socket):
+    def __handle_client(self, track_idx, client_socket, thread_id):
         first_4_bytes = client_socket.recv(4)
         request_type = Utility.big_endian_to_int(first_4_bytes)
         try:
             if request_type == RequestType.IMG_FIND_SIMILAR_ONLY:
-                self.ids_servers[track_idx].handle_find_similar(client_socket, address)
+                self.ids_servers[track_idx].handle_find_similar(client_socket, thread_id)
 
             elif request_type == RequestType.TFN_CHECK:
-                self.tfn_servers[track_idx].handle_tfn_checking(client_socket, address)
+                self.tfn_servers[track_idx].handle_tfn_checking(client_socket, thread_id)
   
             else:
                 client_socket.sendall(
@@ -101,14 +89,14 @@ class QGenIServer:
             client_socket.sendall(
                 Utility.int_to_big_endian(ResponseType.SERVER_ERROR)
             )
-            print(f"Error handling client {address}: {e}")
+            print(f"Error handling client {thread_id}: {e}")
         
         finally:
             client_socket.close()
-            ctrl_socket.close()
-            print(f"Disconnected client {address}")
-            with self.thread_lock:
-                self.track_availability[track_idx] = True
+            print(f"Disconnected client {thread_id}")
+            self.num_working  -= 1
+            if (self.num_working < 0):
+                self.num_working = 0
             
             temp_folder_path = 'img/client'
             for filename in os.listdir(temp_folder_path):
@@ -116,19 +104,32 @@ class QGenIServer:
                 os.remove(file_path)
 
 
-    def __handle_control_client(self, track_idx, ctrl_socket, transfer_addr):
-        ctrl_socket.listen(1)
-        client_ctrl_socket, _ = ctrl_socket.accept()
-        print(f"Accepted control client {transfer_addr}")
+    def __handle_control_client(self):
+        self.control_socket.listen(self.max_clent)
 
-        ctrl_bytes = client_ctrl_socket.recv(4)
-        ctrl_type = Utility.big_endian_to_int(ctrl_bytes)
-        if ctrl_type == ResponseType.CLIENT_ERROR:
-            print(f'Control client error at {transfer_addr}')
-            client_ctrl_socket.close()
-            ctrl_socket.close()
-            thread_continous_flags[transfer_addr] = False
-            self.track_availability[track_idx] = True
+        while True:
+            client_socket, _ = self.control_socket.accept()
+            print(f"Accepted control client")
+
+            client_thread = threading.Thread(
+                target=self.__handle_control_each_client, args=(client_socket,)
+            )
+
+            client_thread.start()
+        
+
+    def __handle_control_each_client(self, client_socket):
+        id_bytes = client_socket.recv(4)
+        thread_id = Utility.big_endian_to_int(id_bytes)
+
+        print(f'Control client error at {thread_id} and will be stopped')
+
+        client_socket.close()
+        thread_continous_flags[thread_id] = False
+        self.num_working  -= 1
+        if (self.num_working < 0):
+            self.num_working = 0
+        
 
 
 
