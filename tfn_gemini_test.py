@@ -17,7 +17,7 @@ Otherwise, if the statement is true to the passage, say 'True', and if the state
 df = pd.read_csv('data/tfn_train.csv')
 predicts = []
 values = []
-for i in range(73, 100):
+for i in range(1, 100):
     try:
         prompt = get_prompt(df['Passage'][i], df['Statement'][i])
         pred = GeminiAPI.generate_content(prompt)

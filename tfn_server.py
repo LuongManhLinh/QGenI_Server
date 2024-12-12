@@ -188,7 +188,7 @@ class TfnServer():
         return ReadingPracticeItem(
             id=None, 
             user_id=ObjectId(user_id), 
-            title="Not yet named", 
+            title="Chưa được đặt tên", 
             is_new=True, 
             creation_date=datetime.now(),
             passage=passage,

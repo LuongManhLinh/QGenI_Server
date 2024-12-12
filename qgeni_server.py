@@ -62,7 +62,9 @@ class QGenIServer:
 
                     ctrl_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     ctrl_port = self.port + 1 + track_idx
+
                     client_socket.sendall(Utility.int_to_big_endian(ctrl_port))
+                    
                     ctrl_socket.bind((self.host, ctrl_port))
                     ctrl_thread = threading.Thread(
                         target=self.__handle_control_client, args=(track_idx, ctrl_socket, address)

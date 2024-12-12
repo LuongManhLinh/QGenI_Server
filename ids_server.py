@@ -341,7 +341,7 @@ class IdsServer:
         return ListeningPracticeItem(
             id=None,
             user_id=ObjectId(user_id_str),
-            title='Not yet named',
+            title='Chưa được đặt tên',
             creation_date=datetime.now(),
             is_new=True,
             question_list=question_list
