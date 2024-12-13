@@ -11,6 +11,7 @@ class RequestType:
     IMG_DESC_ONLY = 2
     IMG_FIND_SIMILAR_ONLY = 3
     IMG_FIND_AND_DESC = 4
+    VERIFICATION = 5
 
 
 class ResponseType:

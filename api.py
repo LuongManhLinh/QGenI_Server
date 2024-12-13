@@ -2,6 +2,11 @@ import requests
 import google.generativeai as genai
 from gtts import gTTS
 from io import BytesIO
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import random
+from concurrent.futures import ThreadPoolExecutor
 
 
 class SearchAPI:
@@ -76,3 +81,54 @@ class Text2SpeechAPI:
         mp3_fp = BytesIO()
         tts.write_to_fp(mp3_fp)
         return mp3_fp.getvalue()
+    
+
+class EmailAPI:
+    __MY_EMAIL = open('keys/MY_EMAIL').read().strip()
+    __PASSWORD = open('keys/PASSWORD').read().strip()
+    
+
+    @staticmethod
+    def send_random_otp(to_email):
+        otp = [random.randint(0, 9) for _ in range(4)]
+        subject = "OTP Verification for your QGenI account"
+        body = f"Your OTP is: {''.join(map(str, otp))}"
+        with ThreadPoolExecutor() as executor:
+            executor.submit(EmailAPI.__send_mail, to_email, subject, body)
+        return otp
+        
+
+    @staticmethod
+    def __send_mail(to_email, subject, body):
+        print(f"Sending email to {to_email}...")
+        try:
+            smtp_server = "smtp.gmail.com"
+            smtp_port = 587
+
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(EmailAPI.__MY_EMAIL, EmailAPI.__PASSWORD)
+
+            msg = MIMEMultipart()
+
+            msg['From'] = EmailAPI.__MY_EMAIL
+            msg['To'] = to_email
+            msg['Subject'] = subject
+
+            msg.attach(MIMEText(body, 'plain'))
+
+            server.sendmail(EmailAPI.__MY_EMAIL, to_email, msg.as_string())
+
+            print(f"Email sent successfully to {to_email}!")
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"SMTP Authentication Error: {e.smtp_code} - {e.smtp_error.decode()}")
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            server.quit()
+
+
+if __name__ == '__main__':
+    a = [1, 2, 3]
+    print(''.join(a))
+

@@ -5,6 +5,7 @@ from server_utils import RequestType, ResponseType, Utility
 from ids_server import IdsServer
 from tfn_server import TfnServer
 from server_thread_controller import thread_continous_flags
+from api import EmailAPI
     
 
 class QGenIServer:
@@ -79,6 +80,9 @@ class QGenIServer:
 
             elif request_type == RequestType.TFN_CHECK:
                 self.tfn_servers[track_idx].handle_tfn_checking(client_socket, thread_id)
+
+            elif request_type == RequestType.VERIFICATION:
+                QGenIServer.__handle_verification(client_socket, thread_id)
   
             else:
                 client_socket.sendall(
@@ -129,6 +133,41 @@ class QGenIServer:
         self.num_working  -= 1
         if (self.num_working < 0):
             self.num_working = 0
+
+
+    @staticmethod
+    def __handle_verification(client_socket, thread_id):
+        print(f'{thread_id} Handling verification...')
+        email = QGenIServer.__receive_long_string(client_socket)
+        print(f"{thread_id} Received email: {email}")
+        otp = EmailAPI.send_random_otp(email)
+        print(f"{thread_id} Generated OTP: {otp}")
+        for each_otp in otp:
+            client_socket.sendall(Utility.int_to_big_endian(each_otp))
+        print(f'{thread_id} Verification done')
+
+
+    @staticmethod
+    def __receive_long_string(client_socket):
+        data_len_bytes = client_socket.recv(4)
+        
+        data_len = Utility.big_endian_to_int(data_len_bytes)
+        recv_len = 0
+
+        buffer = b''
+        while recv_len < data_len:
+            remains = data_len - recv_len
+            if remains < TfnServer.BATCH_DATA_LEN:
+                batch_len = remains
+            else:
+                batch_len = TfnServer.BATCH_DATA_LEN
+
+            data = client_socket.recv(batch_len)
+            recv_len += len(data)
+            buffer += data
+        
+        return buffer.decode('utf-8')
+
         
 
 
