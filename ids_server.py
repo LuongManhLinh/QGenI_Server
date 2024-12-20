@@ -321,11 +321,13 @@ class IdsServer:
             def process_question(j):
                 images_for_question = all_topic_images[j * IdsServer.IMG_PER_QUESTION:(j + 1) * IdsServer.IMG_PER_QUESTION]
                 answer_index = random.randint(0, IdsServer.IMG_PER_QUESTION - 1)
+                print(f'Gemini describing image...')
                 description = GeminiAPI.describe(
                     Image.open(
                         BytesIO(images_for_question[answer_index])
                     )
                 )
+                print('Generating mp3...')
                 mp3_bytes = Text2SpeechAPI.text_to_mp3_bytes(description)
                 return ListeningQuestion(
                     image_byte_arrays=images_for_question,
